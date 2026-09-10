@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeassistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: homeassistant
+  template:
+    metadata:
+      labels:
+        app: homeassistant
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      automountServiceAccountToken: false
+      initContainers:
+        - name: seed-config
+          image: ghcr.io/home-assistant/home-assistant@sha256:612d76760b544cb40b7ba01387fdac964c59a6a550a50a4d30b4773c822d2918
+          command: [sh, -ec]
+          args:
+            - |
+              test -f /config/configuration.yaml || cp /seed/configuration.yaml /config/configuration.yaml
+              mkdir -p /config/.storage
+              test -f /config/.storage/http || cp /seed/http.json /config/.storage/http
+              chmod 600 /config/.storage/http
+              test -f /config/automations.yaml || printf '[]\n' > /config/automations.yaml
+              test -f /config/scripts.yaml || printf '{}\n' > /config/scripts.yaml
+              test -f /config/scenes.yaml || printf '[]\n' > /config/scenes.yaml
+          volumeMounts:
+            - { name: config, mountPath: /seed, readOnly: true }
+            - { name: data, mountPath: /config }
+      containers:
+        - name: homeassistant
+          image: ghcr.io/home-assistant/home-assistant@sha256:612d76760b544cb40b7ba01387fdac964c59a6a550a50a4d30b4773c822d2918
+          env:
+            - { name: TZ, value: Europe/London }
+          ports:
+            - { name: http, containerPort: 8123 }
+          volumeMounts:
+            - { name: data, mountPath: /config }
+          startupProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /, port: http }
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 2Gi }
+      volumes:
+        - name: config
+          configMap:
+            name: homeassistant-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: homeassistant-config

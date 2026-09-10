@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zigbee2mqtt
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: zigbee2mqtt
+  template:
+    metadata:
+      labels:
+        app: zigbee2mqtt
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: seed-config
+          image: ghcr.io/koenkk/zigbee2mqtt@sha256:fef0de769dcd04c27b3a6d277b61046eb96284bdd4198dcb1687c3a01b3020f3
+          command: [sh, -ec]
+          args:
+            - test -f /app/data/configuration.yaml || cp /seed/configuration.yaml /app/data/configuration.yaml
+          volumeMounts:
+            - { name: config, mountPath: /seed, readOnly: true }
+            - { name: data, mountPath: /app/data }
+      containers:
+        - name: zigbee2mqtt
+          image: ghcr.io/koenkk/zigbee2mqtt@sha256:fef0de769dcd04c27b3a6d277b61046eb96284bdd4198dcb1687c3a01b3020f3
+          env:
+            - { name: TZ, value: Europe/London }
+            - name: ZIGBEE2MQTT_CONFIG_MQTT_USER
+              valueFrom:
+                secretKeyRef: { name: mqtt-credentials, key: MQTT_USER }
+            - name: ZIGBEE2MQTT_CONFIG_MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mqtt-credentials, key: MQTT_PASSWORD }
+          ports:
+            - { name: http, containerPort: 8080 }
+          volumeMounts:
+            - { name: data, mountPath: /app/data }
+          startupProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /, port: http }
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 768Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: zigbee2mqtt-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: zigbee2mqtt-data

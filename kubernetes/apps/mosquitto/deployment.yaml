@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    metadata:
+      labels:
+        app: mosquitto
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: password-file
+          image: eclipse-mosquitto@sha256:6f8d8a947c506f8a2290ec65cd4bd2bc7cb4d43fb5f6271f861cb013e2ef9797
+          command: [sh, -ec]
+          args:
+            - |
+              umask 077
+              printf '%s:%s\n' "$MQTT_USER" "$MQTT_PASSWORD" > /auth/passwordfile
+              mosquitto_passwd -U /auth/passwordfile
+              chown 1883:1883 /auth/passwordfile
+              chmod 600 /auth/passwordfile
+          envFrom:
+            - secretRef:
+                name: mqtt-credentials
+          volumeMounts:
+            - { name: auth, mountPath: /auth }
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto@sha256:6f8d8a947c506f8a2290ec65cd4bd2bc7cb4d43fb5f6271f861cb013e2ef9797
+          ports:
+            - { name: mqtt, containerPort: 1883 }
+          volumeMounts:
+            - { name: config, mountPath: /mosquitto/config/mosquitto.conf, subPath: mosquitto.conf, readOnly: true }
+            - { name: auth, mountPath: /mosquitto/auth, readOnly: true }
+            - { name: data, mountPath: /mosquitto/data }
+          readinessProbe:
+            tcpSocket: { port: mqtt }
+          livenessProbe:
+            tcpSocket: { port: mqtt }
+            initialDelaySeconds: 15
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 128Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: mosquitto-config
+        - name: auth
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: mosquitto-data

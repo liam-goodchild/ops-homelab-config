@@ -1,0 +1,10 @@
+default_config:
+homeassistant:
+  name: Home
+  time_zone: Europe/London
+  unit_system: metric
+  external_url: https://homeassistant.lab.skyhaven.ltd
+  internal_url: https://homeassistant.lab.skyhaven.ltd
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
